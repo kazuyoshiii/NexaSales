@@ -1,0 +1,28 @@
+{
+  "name": "nexasales",
+  "version": "0.1.0",
+  "description": "顧客セグメンテーションと市場優先度評価エージェントシステム",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
+  },
+  "keywords": [
+    "openai",
+    "agents",
+    "evc",
+    "market-analysis"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "openai": "^4.90.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

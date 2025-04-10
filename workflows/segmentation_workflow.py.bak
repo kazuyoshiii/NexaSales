@@ -1,0 +1,538 @@
+"""
+顧客セグメンテーションと市場優先度評価ワークフロー
+
+このモジュールでは、各エージェントを連携させて、顧客セグメンテーションと市場優先度評価のプロセスを
+自動化するワークフローを定義します。
+"""
+
+import asyncio
+import json
+import logging
+from typing import Dict, Any, List, Optional
+# プロジェクト内のモジュールをインポート
+import sys
+import os
+
+# プロジェクトのルートディレクトリを取得
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# プロジェクトのルートをPythonパスに追加
+sys.path.insert(0, project_root)
+
+# OpenAI Agents SDKをインポート
+import agents
+# OpenAI Agents SDK
+from agents import Agent, RunResult, RunContextWrapper, function_tool
+from agents.handoffs import Handoff
+
+# プロジェクト内のモジュールを相対パスでインポート
+from nexasales_agents.service_analysis import get_service_analysis_agent
+from nexasales_agents.customer_segment import get_customer_segment_agent
+from nexasales_agents.reference_product import get_reference_product_agent
+from nexasales_agents.value_comparison import get_value_comparison_agent
+from nexasales_agents.formula_design import get_formula_design_agent
+from nexasales_agents.evc_calculation import get_evc_calculation_agent
+from nexasales_agents.market_potential import get_market_potential_agent
+from nexasales_agents.priority_evaluation_final import get_priority_evaluation_agent
+
+from models.models import ServiceAnalysisReport, CustomerSegment, ReferenceProduct, ValueComparisonReport
+from utils.utils import setup_logging
+
+
+# ロガーの設定
+logger = logging.getLogger(__name__)
+
+
+@function_tool
+async def extract_service_analysis_results(response: str) -> str:
+    """サービス分析エージェントの結果を抽出します。
+
+    Args:
+        response: エージェントレスポンス
+
+    Returns:
+        サービス分析結果
+    """
+    # エージェントレスポンスからサービス分析結果を抽出
+    try:
+        # レスポンスからサービス分析レポートを抽出
+        service_analysis = json.loads(response)
+        
+        # 実際の実装では、レスポンスの構造に応じて適切に抽出します
+        # この例では、モックデータを返します
+        return str({
+            "service_name": service_analysis.get("service_name", "未指定のサービス"),
+            "service_features": service_analysis.get("service_features", []),
+            "business_model": service_analysis.get("business_model", {}),
+            "delivery_methods": service_analysis.get("delivery_methods", []),
+            "unique_selling_points": service_analysis.get("unique_selling_points", [])
+        })
+    except Exception as e:
+        logger.error(f"サービス分析結果の抽出中にエラーが発生しました: {e}")
+        return str({
+            "service_name": "未指定のサービス",
+            "service_features": [],
+            "business_model": {},
+            "delivery_methods": [],
+            "unique_selling_points": []
+        })
+
+
+@function_tool
+async def extract_customer_segments(response: str) -> str:
+    """顧客セグメント抽出エージェントの結果を抽出します。
+
+    Args:
+        response: エージェントレスポンス
+
+    Returns:
+        顧客セグメントのリスト
+    """
+    # エージェントレスポンスから顧客セグメントを抽出
+    try:
+        # レスポンスから顧客セグメントを抽出
+        segments_data = json.loads(response).get("segments", [])
+        
+        # セグメントをリストに変換
+        segments = []
+        for segment_data in segments_data:
+            segment = {
+                "segment_id": segment_data.get("segment_id", ""),
+                "name": segment_data.get("name", ""),
+                "description": segment_data.get("description", ""),
+                "characteristics": segment_data.get("characteristics", {}),
+                "needs": segment_data.get("needs", []),
+                "pain_points": segment_data.get("pain_points", []),
+                "acquisition_channels": segment_data.get("acquisition_channels", [])
+            }
+            segments.append(segment)
+        
+        return str(segments)
+    except Exception as e:
+        logger.error(f"顧客セグメントの抽出中にエラーが発生しました: {e}")
+        return str([])
+
+
+@function_tool
+async def extract_reference_products(response: str) -> str:
+    """参照製品特定エージェントの結果を抽出します。
+
+    Args:
+        response: エージェントレスポンス
+
+    Returns:
+        参照製品のリスト
+    """
+    # エージェントレスポンスから参照製品を抽出
+    try:
+        # レスポンスから参照製品を抽出
+        products_data = json.loads(response).get("reference_products", [])
+        
+        # 参照製品をリストに変換
+        products = []
+        for product_data in products_data:
+            product = {
+                "product_id": product_data.get("product_id", ""),
+                "name": product_data.get("name", ""),
+                "description": product_data.get("description", ""),
+                "features": product_data.get("features", []),
+                "pricing": product_data.get("pricing", {}),
+                "market_position": product_data.get("market_position", ""),
+                "strengths": product_data.get("strengths", []),
+                "weaknesses": product_data.get("weaknesses", [])
+            }
+            products.append(product)
+        
+        return str(products)
+    except Exception as e:
+        logger.error(f"参照製品の抽出中にエラーが発生しました: {e}")
+        return str([])
+
+
+@function_tool
+async def extract_value_comparison(response: str) -> str:
+    """価値比較エージェントの結果を抽出します。
+
+    Args:
+        response: エージェントレスポンス
+
+    Returns:
+        価値比較結果
+    """
+    # エージェントレスポンスから価値比較結果を抽出
+    try:
+        # レスポンスから価値比較結果を抽出
+        comparison_data = json.loads(response)
+        
+        # 価値比較結果を辞書に変換
+        comparison = {
+            "segment_comparisons": comparison_data.get("segment_comparisons", {}),
+            "overall_value_factors": comparison_data.get("overall_value_factors", []),
+            "segment_specific_factors": comparison_data.get("segment_specific_factors", {})
+        }
+        
+        return str(comparison)
+    except Exception as e:
+        logger.error(f"価値比較結果の抽出中にエラーが発生しました: {e}")
+        return str({
+            "segment_comparisons": {},
+            "overall_value_factors": [],
+            "segment_specific_factors": {}
+        })
+
+
+@function_tool
+async def extract_formula_design(response: str) -> str:
+    """フォーミュラ設計エージェントの結果を抽出します。
+
+    Args:
+        response: エージェントレスポンス
+
+    Returns:
+        フォーミュラ設計結果
+    """
+    # エージェントレスポンスからフォーミュラ設計結果を抽出
+    try:
+        # レスポンスからフォーミュラ設計結果を抽出
+        formula_data = json.loads(response)
+        
+        # フォーミュラ設計結果を辞書に変換
+        formula = {
+            "general_formula": formula_data.get("general_formula", {}),
+            "segment_formulas": formula_data.get("segment_formulas", {}),
+            "validation_results": formula_data.get("validation_results", {})
+        }
+        
+        return str(formula)
+    except Exception as e:
+        logger.error(f"フォーミュラ設計結果の抽出中にエラーが発生しました: {e}")
+        return str({
+            "general_formula": {},
+            "segment_formulas": {},
+            "validation_results": {}
+        })
+
+
+@function_tool
+async def extract_evc_calculation(response: str) -> str:
+    """EVC計算エージェントの結果を抽出します。
+
+    Args:
+        response: エージェントレスポンス
+
+    Returns:
+        EVC計算結果
+    """
+    # エージェントレスポンスからEVC計算結果を抽出
+    try:
+        # レスポンスからEVC計算結果を抽出
+        evc_data = json.loads(response)
+        
+        # EVC計算結果を辞書に変換
+        evc_results = {
+            "segment_results": evc_data.get("segment_results", []),
+            "analysis": evc_data.get("analysis", {}),
+            "visualization_data": evc_data.get("visualization_data", {})
+        }
+        
+        return str(evc_results)
+    except Exception as e:
+        logger.error(f"EVC計算結果の抽出中にエラーが発生しました: {e}")
+        return str({
+            "segment_results": [],
+            "analysis": {},
+            "visualization_data": {}
+        })
+
+
+@function_tool
+async def extract_market_potential(response: str) -> str:
+    """市場ポテンシャル分析エージェントの結果を抽出します。
+
+    Args:
+        response: エージェントレスポンス
+
+    Returns:
+        市場ポテンシャル分析結果
+    """
+    # エージェントレスポンスから市場ポテンシャル分析結果を抽出
+    try:
+        # レスポンスから市場ポテンシャル分析結果を抽出
+        potential_data = json.loads(response)
+        
+        # 市場ポテンシャル分析結果を辞書に変換
+        potential = {
+            "market_potentials": potential_data.get("market_potentials", []),
+            "summary": potential_data.get("summary", {}),
+            "key_insights": potential_data.get("key_insights", []),
+            "recommendations": potential_data.get("recommendations", [])
+        }
+        
+        return str(potential)
+    except Exception as e:
+        logger.error(f"市場ポテンシャル分析結果の抽出中にエラーが発生しました: {e}")
+        return str({
+            "market_potentials": [],
+            "summary": {},
+            "key_insights": [],
+            "recommendations": []
+        })
+
+
+@function_tool
+async def extract_priority_evaluation(response: str) -> str:
+    """優先度評価エージェントの結果を抽出します。
+
+    Args:
+        response: エージェントレスポンス
+
+    Returns:
+        優先度評価結果
+    """
+    # エージェントレスポンスから優先度評価結果を抽出
+    try:
+        # レスポンスから優先度評価結果を抽出
+        evaluation_data = json.loads(response)
+        
+        # 優先度評価結果を辞書に変換
+        evaluation = {
+            "summary": evaluation_data.get("summary", {}),
+            "segment_evaluations": evaluation_data.get("segment_evaluations", []),
+            "overall_strategy": evaluation_data.get("overall_strategy", {}),
+            "key_insights": evaluation_data.get("key_insights", []),
+            "recommendations": evaluation_data.get("recommendations", [])
+        }
+        
+        return str(evaluation)
+    except Exception as e:
+        logger.error(f"優先度評価結果の抽出中にエラーが発生しました: {e}")
+        return str({
+            "summary": {},
+            "segment_evaluations": [],
+            "overall_strategy": {},
+            "key_insights": [],
+            "recommendations": []
+        })
+
+
+class SegmentationWorkflow:
+    """顧客セグメンテーションと市場優先度評価ワークフロー"""
+    
+    def __init__(self):
+        """ワークフローの初期化"""
+        # エージェントの取得
+        self.service_analysis_agent = get_service_analysis_agent()
+        self.customer_segment_agent = get_customer_segment_agent()
+        self.reference_product_agent = get_reference_product_agent()
+        self.value_comparison_agent = get_value_comparison_agent()
+        self.formula_design_agent = get_formula_design_agent()
+        self.evc_calculation_agent = get_evc_calculation_agent()
+        self.market_potential_agent = get_market_potential_agent()
+        self.priority_evaluation_agent = get_priority_evaluation_agent()
+        
+        # ロガーの設定
+        setup_logging()
+        self.logger = logging.getLogger(__name__)
+    
+    async def run_workflow(self, service_description: str, market_data: str) -> Dict[str, Any]:
+        """ワークフローを実行します。
+
+        Args:
+            service_description: サービス説明
+            market_data: 市場データ
+
+        Returns:
+            ワークフロー実行結果
+        """
+        self.logger.info("顧客セグメンテーションと市場優先度評価ワークフローを開始します")
+        
+        try:
+            # 1. サービス分析
+            self.logger.info("サービス分析を開始します")
+            service_analysis_response = await self.service_analysis_agent.invoke(
+                f"以下のサービス説明を分析し、特徴、ビジネスモデル、提供方法、独自の販売ポイントを特定してください：\n\n{service_description}"
+            )
+            service_analysis = await extract_service_analysis_results(service_analysis_response)
+            self.logger.info("サービス分析が完了しました")
+            
+            # 2. 顧客セグメント抽出
+            self.logger.info("顧客セグメント抽出を開始します")
+            segment_extraction_response = await self.customer_segment_agent.invoke(
+                f"以下の市場データとサービス分析結果に基づいて、顧客セグメントを抽出してください：\n\n市場データ：\n{market_data}\n\nサービス分析結果：\n{service_analysis}"
+            )
+            customer_segments = await extract_customer_segments(segment_extraction_response)
+            self.logger.info("顧客セグメント抽出が完了しました")
+            
+            # 3. 参照製品特定
+            self.logger.info("参照製品特定を開始します")
+            reference_product_response = await self.reference_product_agent.invoke(
+                f"以下のサービス分析結果と顧客セグメントに基づいて、参照製品を特定してください：\n\nサービス分析結果：\n{service_analysis}\n\n顧客セグメント：\n{customer_segments}"
+            )
+            reference_products = await extract_reference_products(reference_product_response)
+            self.logger.info("参照製品特定が完了しました")
+            
+            # 4. 価値比較
+            self.logger.info("価値比較を開始します")
+            value_comparison_response = await self.value_comparison_agent.invoke(
+                f"以下の参照製品と顧客セグメントに基づいて、価値要因を比較してください：\n\n参照製品：\n{reference_products}\n\n顧客セグメント：\n{customer_segments}"
+            )
+            value_comparison = await extract_value_comparison(value_comparison_response)
+            self.logger.info("価値比較が完了しました")
+            
+            # 5. フォーミュラ設計
+            self.logger.info("フォーミュラ設計を開始します")
+            formula_design_response = await self.formula_design_agent.invoke(
+                f"以下の価値比較結果と顧客セグメントに基づいて、EVC計算フォーミュラを設計してください：\n\n価値比較結果：\n{value_comparison}\n\n顧客セグメント：\n{customer_segments}"
+            )
+            formula_design = await extract_formula_design(formula_design_response)
+            self.logger.info("フォーミュラ設計が完了しました")
+            
+            # 6. EVC計算
+            self.logger.info("EVC計算を開始します")
+            evc_calculation_response = await self.evc_calculation_agent.invoke(
+                f"以下のフォーミュラ設計結果と顧客セグメントに基づいて、EVC値を計算してください：\n\nフォーミュラ設計結果：\n{formula_design}\n\n顧客セグメント：\n{customer_segments}"
+            )
+            evc_calculation = await extract_evc_calculation(evc_calculation_response)
+            self.logger.info("EVC計算が完了しました")
+            
+            # 7. 市場ポテンシャル分析
+            self.logger.info("市場ポテンシャル分析を開始します")
+            market_potential_response = await self.market_potential_agent.invoke(
+                f"以下の顧客セグメントと市場データに基づいて、市場ポテンシャルを分析してください：\n\n顧客セグメント：\n{customer_segments}\n\n市場データ：\n{market_data}"
+            )
+            market_potential = await extract_market_potential(market_potential_response)
+            self.logger.info("市場ポテンシャル分析が完了しました")
+            
+            # 8. 優先度評価
+            self.logger.info("優先度評価を開始します")
+            priority_evaluation_response = await self.priority_evaluation_agent.invoke(
+                f"以下のEVC計算結果と市場ポテンシャル分析結果に基づいて、セグメント別の優先度を評価してください：\n\nEVC計算結果：\n{evc_calculation}\n\n市場ポテンシャル分析結果：\n{market_potential}"
+            )
+            priority_evaluation = await extract_priority_evaluation(priority_evaluation_response)
+            self.logger.info("優先度評価が完了しました")
+            
+            # ワークフロー実行結果
+            workflow_result = {
+                "service_analysis": service_analysis,
+                "customer_segments": customer_segments,
+                "reference_products": reference_products,
+                "value_comparison": value_comparison,
+                "formula_design": formula_design,
+                "evc_calculation": evc_calculation,
+                "market_potential": market_potential,
+                "priority_evaluation": priority_evaluation
+            }
+            
+            self.logger.info("顧客セグメンテーションと市場優先度評価ワークフローが完了しました")
+            return workflow_result
+        
+        except Exception as e:
+            self.logger.error(f"ワークフロー実行中にエラーが発生しました: {e}")
+            raise
+    
+    async def run_workflow_with_handoffs(self, service_description: str, market_data: str) -> Dict[str, Any]:
+        """ハンドオフを使用してワークフローを実行します。
+
+        Args:
+            service_description: サービス説明
+            market_data: 市場データ
+
+        Returns:
+            ワークフロー実行結果
+        """
+        self.logger.info("ハンドオフを使用した顧客セグメンテーションと市場優先度評価ワークフローを開始します")
+        
+        try:
+            # 1. サービス分析
+            self.logger.info("サービス分析を開始します")
+            service_analysis_context = {}
+            service_analysis_response = await self.service_analysis_agent.invoke(
+                f"以下のサービス説明を分析し、特徴、ビジネスモデル、提供方法、独自の販売ポイントを特定してください：\n\n{service_description}"
+            )
+            service_analysis = await extract_service_analysis_results(service_analysis_response)
+            self.logger.info("サービス分析が完了しました")
+            
+            # 2. 顧客セグメント抽出
+            self.logger.info("顧客セグメント抽出を開始します")
+            segment_extraction_response = await self.customer_segment_agent.invoke(
+                f"以下の市場データとサービス分析結果に基づいて、顧客セグメントを抽出してください：\n\n市場データ：\n{market_data}\n\nサービス分析結果：\n{service_analysis}"
+            )
+            customer_segments = await extract_customer_segments(segment_extraction_response)
+            self.logger.info("顧客セグメント抽出が完了しました")
+            
+            # 3. 参照製品特定
+            self.logger.info("参照製品特定を開始します")
+            reference_product_response = await self.reference_product_agent.invoke(
+                f"以下のサービス分析結果と顧客セグメントに基づいて、参照製品を特定してください：\n\nサービス分析結果：\n{service_analysis}\n\n顧客セグメント：\n{customer_segments}"
+            )
+            reference_products = await extract_reference_products(reference_product_response)
+            self.logger.info("参照製品特定が完了しました")
+            
+            # 4. 価値比較
+            self.logger.info("価値比較を開始します")
+            value_comparison_response = await self.value_comparison_agent.invoke(
+                f"以下の参照製品と顧客セグメントに基づいて、価値要因を比較してください：\n\n参照製品：\n{reference_products}\n\n顧客セグメント：\n{customer_segments}"
+            )
+            value_comparison = await extract_value_comparison(value_comparison_response)
+            self.logger.info("価値比較が完了しました")
+            
+            # 5. フォーミュラ設計
+            self.logger.info("フォーミュラ設計を開始します")
+            formula_design_response = await self.formula_design_agent.invoke(
+                f"以下の価値比較結果と顧客セグメントに基づいて、EVC計算フォーミュラを設計してください：\n\n価値比較結果：\n{value_comparison}\n\n顧客セグメント：\n{customer_segments}"
+            )
+            formula_design = await extract_formula_design(formula_design_response)
+            self.logger.info("フォーミュラ設計が完了しました")
+            
+            # 6. EVC計算
+            self.logger.info("EVC計算を開始します")
+            evc_calculation_response = await self.evc_calculation_agent.invoke(
+                f"以下のフォーミュラ設計結果と顧客セグメントに基づいて、EVC値を計算してください：\n\nフォーミュラ設計結果：\n{formula_design}\n\n顧客セグメント：\n{customer_segments}"
+            )
+            evc_calculation = await extract_evc_calculation(evc_calculation_response)
+            self.logger.info("EVC計算が完了しました")
+            
+            # 7. 市場ポテンシャル分析
+            self.logger.info("市場ポテンシャル分析を開始します")
+            market_potential_response = await self.market_potential_agent.invoke(
+                f"以下の顧客セグメントと市場データに基づいて、市場ポテンシャルを分析してください：\n\n顧客セグメント：\n{customer_segments}\n\n市場データ：\n{market_data}"
+            )
+            market_potential = await extract_market_potential(market_potential_response)
+            self.logger.info("市場ポテンシャル分析が完了しました")
+            
+            # 8. 優先度評価
+            self.logger.info("優先度評価を開始します")
+            priority_evaluation_response = await self.priority_evaluation_agent.invoke(
+                f"以下のEVC計算結果と市場ポテンシャル分析結果に基づいて、セグメント別の優先度を評価してください：\n\nEVC計算結果：\n{evc_calculation}\n\n市場ポテンシャル分析結果：\n{market_potential}"
+            )
+            priority_evaluation = await extract_priority_evaluation(priority_evaluation_response)
+            self.logger.info("優先度評価が完了しました")
+            
+            # ワークフロー実行結果
+            workflow_result = {
+                "service_analysis": service_analysis,
+                "customer_segments": customer_segments,
+                "reference_products": reference_products,
+                "value_comparison": value_comparison,
+                "formula_design": formula_design,
+                "evc_calculation": evc_calculation,
+                "market_potential": market_potential,
+                "priority_evaluation": priority_evaluation
+            }
+            
+            self.logger.info("顧客セグメンテーションと市場優先度評価ワークフローが完了しました")
+            return workflow_result
+        
+        except Exception as e:
+            self.logger.error(f"ワークフロー実行中にエラーが発生しました: {e}")
+            raise
+
+
+# ワークフローのインスタンスを取得する関数
+def get_segmentation_workflow() -> SegmentationWorkflow:
+    """顧客セグメンテーションと市場優先度評価ワークフローのインスタンスを取得します。
+
+    Returns:
+        ワークフローのインスタンス
+    """
+    return SegmentationWorkflow()

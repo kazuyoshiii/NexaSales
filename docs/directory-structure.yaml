@@ -1,0 +1,104 @@
+---
+title: "NexaSales 顧客セグメンテーションシステム ディレクトリ構造"
+version: "1.0.0"
+date: "2025-04-08"
+author: "NexaSales開発チーム"
+
+root:
+  name: "NexaSales"
+  description: "顧客セグメンテーションと市場優先度評価フレームワークのルートディレクトリ"
+  children:
+    - name: "agents"
+      description: "エージェント定義ディレクトリ"
+      files:
+        - name: "service_analysis.py"
+          description: "サービス分析エージェント（プロンプトとwebsearchツールを含む）"
+        - name: "customer_segment.py"
+          description: "顧客セグメント抽出エージェント（プロンプトとwebsearchツールを含む）"
+        - name: "reference_product.py"
+          description: "参照製品特定と分析エージェント（プロンプトとwebsearchツールを含む）"
+        - name: "value_comparison.py"
+          description: "価値比較エージェント（プロンプトを含む）"
+        - name: "formula_design.py"
+          description: "フォーミュラ設計エージェント（プロンプトを含む）"
+        - name: "evc_calculation.py"
+          description: "EVC計算エージェント（プロンプトを含む）"
+        - name: "market_potential.py"
+          description: "市場ポテンシャル分析エージェント（プロンプトとwebsearchツールを含む）"
+        - name: "priority_evaluation.py"
+          description: "優先度評価エージェント（プロンプトを含む）"
+        - name: "integration.py"
+          description: "統合エージェント（プロンプトを含む）"
+    
+    - name: "tools"
+      description: "共通ツール関数ディレクトリ"
+      files:
+        - name: "evc_tools.py"
+          description: "EVC計算用ツール関数"
+        - name: "common_tools.py"
+          description: "共通ツール関数"
+    
+    - name: "models"
+      description: "データモデルディレクトリ"
+      files:
+        - name: "models.py"
+          description: "全モデル定義（セグメント、サービス、製品、EVC、市場、優先度）"
+    
+    - name: "utils"
+      description: "ユーティリティ関数ディレクトリ"
+      files:
+        - name: "utils.py"
+          description: "共通ユーティリティ関数（フォーマット変換、検証、計算、ロギング）"
+    
+    - name: "workflows"
+      description: "ワークフロー定義ディレクトリ"
+      files:
+        - name: "workflows.py"
+          description: "ワークフロー定義（セグメンテーション、EVC計算、優先度評価、メイン）"
+    
+    - name: "tests"
+      description: "テストディレクトリ"
+      files:
+        - name: "test_agents.py"
+          description: "エージェントテスト"
+        - name: "test_workflows.py"
+          description: "ワークフローテスト"
+    
+    - name: "docs"
+      description: "ドキュメントディレクトリ"
+      files:
+        - name: "business.md"
+          description: "ビジネス要件ドキュメント"
+        - name: "requirements.yaml"
+          description: "システム要件定義"
+        - name: "directory-structure.yaml"
+          description: "ディレクトリ構造定義"
+        - name: "openai-agents-sdk-guide.yaml"
+          description: "OpenAI Agents SDK実装ガイド"
+    
+    - name: "examples"
+      description: "サンプル実装ディレクトリ"
+      files:
+        - name: "simple_example.py"
+          description: "シンプルな実装サンプル"
+  
+  files:
+    - name: "requirements.txt"
+      description: "Pythonパッケージ依存関係"
+    - name: ".env.example"
+      description: "環境変数サンプル（OPENAI_API_KEYなど）"
+    - name: "README.md"
+      description: "プロジェクト概要"
+    - name: "main.py"
+      description: "メインエントリーポイント"
+
+注意事項:
+  - "極めてシンプルな構造を採用し、過剰なファイル分割を避けました"
+  - "プロンプトとwebsearchツールは各エージェント内に直接定義し、コードの可読性を高めました"
+  - "GPT-4oの高い機能を活用し、複雑なロジックをエージェントに委託しました"
+  - "共通ツールとモデルは単一ファイルにまとめ、メンテナンス性を向上させました"
+
+実装優先順位:
+  1. "基本エージェント（サービス分析、顧客セグメント抽出）"
+  2. "EVC計算と市場ポテンシャル分析"
+  3. "優先度評価と統合レポート"

@@ -1,0 +1,391 @@
+---
+title: "OpenAI Agents SDK 実装ガイド"
+version: "1.0.0"
+date: "2025-04-08"
+author: "NexaSales開発チーム"
+
+概要:
+  description: "OpenAI Agents SDKを使用したマルチエージェントシステム実装のためのガイドライン"
+  目的: "顧客セグメンテーションと市場優先度評価フレームワークに基づいたエージェントシステムの構築"
+
+基本概念:
+  Agent:
+    description: "指示、ツール、ガードレール、ハンドオフで構成されたLLMベースのエージェント"
+    主要属性:
+      - name: "エージェントの名前"
+      - instructions: "エージェントの振る舞いを定義する詳細な指示"
+      - tools: "エージェントが使用できるツールのリスト"
+      - handoffs: "エージェントが制御を委譲できる他のエージェントのリスト"
+      - guardrails: "入出力の検証のための安全性チェック"
+  
+  Handoffs:
+    description: "エージェント間で制御を移転するための特殊なツール呼び出し"
+    用途: "特定のタスクに特化した専門エージェントへの委譲"
+    特徴: "モジュラーで専門的なエージェントを連携させる強力なパターン"
+  
+  Guardrails:
+    description: "入力と出力の検証のための構成可能な安全性チェック"
+    用途: "エージェントの動作を制約し、安全で一貫した応答を確保する"
+  
+  Tracing:
+    description: "エージェント実行の追跡と可視化機能"
+    用途: "エージェントの動作をデバッグ、最適化、監視するためのツール"
+
+実装上の重要ポイント:
+  設計原則:
+    - "各エージェントは単一の明確な役割と責任を持つべき"
+    - "複雑なタスクは専門的なサブエージェントに分割"
+    - "エージェントの指示（instructions）は具体的かつ詳細に記述する"
+    - "ハンドオフを活用して適切なエージェントにタスクを委譲する"
+  
+  パフォーマンス最適化:
+    - "適切なモデル選択でコストとパフォーマンスのバランスを取る"
+    - "ツール呼び出しを効率的に設計し、不要な呼び出しを減らす"
+    - "max_turnsパラメータを適切に設定して無限ループを防止"
+    - "非同期処理を活用して並列実行を最適化"
+  
+  並列処理パターン:
+    asyncio活用:
+      - "asyncio.gatherを使用して複数エージェントを並列実行"
+      - "非同期関数としてエージェント実行を定義（async/await）"
+      - "Runner.run()を使用して非同期実行、Runner.run_sync()で同期実行"
+    
+    実装パターン:
+      競合結果選択: "同じタスクを複数エージェントに並列実行し、最良の結果を選択"
+      タスク分割: "大きなタスクを小さなサブタスクに分割し、並列処理"
+      ガードレール並列実行: "メイン処理と並行して入出力検証を実行"
+    
+    コード例: |
+      import asyncio
+      from agents import Agent, Runner, trace
+      
+      async def main():
+          # 複数エージェントの並列実行
+          with trace("並列分析処理"):
+              service_analysis_result, segment_extraction_result = await asyncio.gather(
+                  Runner.run(service_analysis_agent, "サービス分析"),
+                  Runner.run(segment_extraction_agent, "顧客セグメント抽出")
+              )
+          
+          # 結果の統合
+          integration_result = await Runner.run(
+              integration_agent,
+              f"以下の分析結果を統合してください:\n{service_analysis_result.final_output}\n{segment_extraction_result.final_output}"
+          )
+    
+    注意点:
+      - "APIレート制限に注意し、適切な数の並列処理に制限する"
+      - "エラーハンドリングを適切に実装し、一部のタスク失敗が全体に影響しないようにする"
+      - "タスク間の依存関係を考慮し、適切な順序で実行する"
+      - "トレース機能を活用して複雑な並列処理をデバッグする"
+  
+  エラーハンドリング:
+    - "すべてのツール関数にtry-catchブロックを使用"
+    - "エージェントの応答を適切に検証し、エラー時の回復メカニズムを実装"
+    - "トレース機能を活用してエラーの原因を特定"
+  
+  セキュリティ考慮事項:
+    - "APIキーは環境変数として保存し、コードにハードコーディングしない"
+    - "ガードレールを使用して入出力を検証し、不適切な内容をフィルタリング"
+    - "センシティブな情報はログに記録しない"
+
+実装手順:
+  1_初期設定:
+    - "OpenAI Agents SDKのインストール: pip install openai-agents"
+    - "環境変数の設定: OPENAI_API_KEY"
+    - "基本的なプロジェクト構造の作成"
+  
+  インポートと基本構造:
+    基本インポート: |
+      # 基本的なエージェントのインポート
+      from agents import Agent, Runner
+      
+      # 非同期処理のためのインポート
+      import asyncio
+      
+      # ツール関数のインポート
+      from agents import function_tool, RunContextWrapper
+      
+      # ガードレールのインポート
+      from agents import InputGuardrail, OutputGuardrail, GuardrailFunctionOutput
+      
+      # トレース機能のインポート
+      from agents import trace, Tracer
+      
+      # 構造化出力のためのインポート
+      from pydantic import BaseModel
+    
+    モジュール構造:
+      - "agents.Agent: エージェントの定義と設定"
+      - "agents.Runner: エージェントの実行と結果取得"
+      - "agents.function_tool: ツール関数を定義するデコレータ"
+      - "agents.trace: エージェントの実行を追跡するコンテキストマネージャ"
+      - "agents.Tracer: トレース情報を収集するクラス"
+      - "agents.ItemHelpers: エージェントの出力アイテムを操作するユーティリティ"
+    
+    基本的なファイル構造:
+      - "src/agents/: エージェント定義ファイルを格納"
+      - "src/tools/: ツール関数を格納"
+      - "src/types/: 型定義を格納"
+      - "src/utils/: ユーティリティ関数を格納"
+      - "src/index.ts: メインエントリポイント"
+  
+  2_基本的なエージェントの作成:
+    コード例: |
+      from agents import Agent, Runner
+
+      agent = Agent(
+          name="ServiceAnalysisAgent",
+          instructions="詳細な指示...",
+      )
+
+      result = Runner.run_sync(agent, "分析対象のサービスについて教えてください")
+      print(result.final_output)
+    注意点:
+      - "instructionsは具体的かつ詳細に記述する"
+      - "エージェント名は役割を反映した分かりやすいものにする"
+  
+  3_ツール関数の実装:
+    基本的なツール関数: |
+      from agents import Agent, Runner, function_tool
+
+      @function_tool
+      def analyze_service(service_name: str) -> dict:
+          """サービスの詳細を分析します。
+          
+          Args:
+              service_name: 分析対象のサービス名
+              
+          Returns:
+              サービスの分析結果を含む辞書
+          """
+          # サービス分析のロジック
+          return {"name": service_name, "features": ["機能1", "機能2"]}
+
+      agent = Agent(
+          name="ServiceAnalysisAgent",
+          instructions="サービスを分析するエージェントです",
+          tools=[analyze_service],
+      )
+    
+    高度なツール関数実装: |
+      from typing import TypedDict, List, Optional, Any
+      from agents import function_tool, RunContextWrapper
+      
+      # TypedDictを使用した複雑な型定義
+      class CustomerSegment(TypedDict):
+          name: str
+          value_potential: float
+          implementation_ease: float
+          characteristics: List[str]
+      
+      # コンテキストを受け取るツール関数
+      @function_tool
+      def extract_segments(ctx: RunContextWrapper[Any], market_data: str) -> List[CustomerSegment]:
+          """市場データから顧客セグメントを抽出します。
+          
+          Args:
+              ctx: 実行コンテキスト
+              market_data: 分析対象の市場データ
+              
+          Returns:
+              抽出された顧客セグメントのリスト
+          """
+          # セグメント抽出のロジック
+          # 実際の実装では、外部ライブラリやAPIを呼び出すこともある
+          try:
+              # ログ出力の例
+              ctx.logger.info(f"セグメント抽出開始: {len(market_data)} バイトのデータ")
+              
+              # サンプルセグメントを返す
+              return [
+                  {"name": "高価値・低障壁", "value_potential": 0.9, "implementation_ease": 0.8, "characteristics": ["特徴1", "特徴2"]},
+                  {"name": "高価値・高障壁", "value_potential": 0.8, "implementation_ease": 0.3, "characteristics": ["特徴3", "特徴4"]}
+              ]
+          except Exception as e:
+              # エラーハンドリング
+              ctx.logger.error(f"セグメント抽出中にエラーが発生しました: {str(e)}")
+              return []
+      
+      # 名前や説明をカスタマイズしたツール関数
+      @function_tool(name_override="calculate_evc", description="顧客価値方程式（EVC）を計算します")
+      async def calculate_economic_value_created(segment_name: str, revenue_impact: float, cost_reduction: float) -> float:
+          """指定されたセグメントのEVCを計算します。
+          
+          Args:
+              segment_name: 顧客セグメント名
+              revenue_impact: 収益向上インパクト
+              cost_reduction: コスト削減効果
+              
+          Returns:
+              計算されたEVC値
+          """
+          # 非同期処理のシミュレーション
+          await asyncio.sleep(1)  # 外部API呼び出しなどをシミュレート
+          
+          # EVC計算ロジック
+          return revenue_impact * 0.7 + cost_reduction * 0.3
+    
+    構造化出力を持つツール関数: |
+      from pydantic import BaseModel
+      from typing import List
+      from agents import function_tool
+      
+      # Pydanticモデルを使用した構造化出力
+      class PriorityScore(BaseModel):
+          segment_name: str
+          score: float
+          recommendation: str
+      
+      class PriorityReport(BaseModel):
+          segments: List[PriorityScore]
+          top_priority: str
+          summary: str
+      
+      @function_tool
+      def evaluate_priorities(evc_data: dict) -> PriorityReport:
+          """各セグメントのEVC値に基づいて優先度を評価します。
+          
+          Args:
+              evc_data: 各セグメントのEVC計算結果
+              
+          Returns:
+              優先度評価レポート
+          """
+          # サンプルレポートの生成
+          scores = [
+              PriorityScore(segment_name="高価値・低障壁", score=0.95, recommendation="最優先でアプローチすべき"),
+              PriorityScore(segment_name="高価値・高障壁", score=0.75, recommendation="中期的な関係構築が必要")
+          ]
+          
+          return PriorityReport(
+              segments=scores,
+              top_priority="高価値・低障壁",
+              summary="高価値・低障壁セグメントが最も優先度が高いと評価されました。"
+          )
+    
+    注意点:
+      - "ツール関数の引数と戻り値の型を明示的に指定する"
+      - "ドキュメント文字列（docstring）を詳細に記述し、引数と戻り値の説明を含める"
+      - "複雑な処理は外部関数に委譲し、ツール関数はシンプルに保つ"
+      - "エラーハンドリングを適切に実装し、エージェントの実行が中断しないようにする"
+      - "TypedDictやBaseModelを使用して複雑なデータ構造を表現する"
+      - "非同期関数（async/await）を使用して長時間の処理を実装する"
+      - "name_overrideやdescriptionパラメータを使用してツールの名前や説明をカスタマイズできる"
+  
+  4_マルチエージェントシステムの構築:
+    コード例: |
+      segment_extraction_agent = Agent(
+          name="SegmentExtractionAgent",
+          instructions="顧客セグメントを抽出するエージェントです",
+          tools=[extract_segments],
+      )
+
+      evc_calculation_agent = Agent(
+          name="EVCCalculationAgent",
+          instructions="EVCを計算するエージェントです",
+          tools=[calculate_evc],
+      )
+
+      main_agent = Agent(
+          name="MainAgent",
+          instructions="適切なサブエージェントにタスクを委譲してください",
+          handoffs=[segment_extraction_agent, evc_calculation_agent],
+      )
+    注意点:
+      - "各エージェントの役割と責任を明確に定義する"
+      - "ハンドオフの順序と条件を適切に設計する"
+  
+  5_非同期実行とトレース:
+    コード例: |
+      import asyncio
+      from agents import Agent, Runner, Tracer
+
+      tracer = Tracer()
+
+      async def main():
+          result = await Runner.run(
+              main_agent, 
+              input="NexaSalesの顧客セグメント分析を行ってください",
+              tracer=tracer
+          )
+          print(result.final_output)
+          print(tracer.get_trace())
+
+      if __name__ == "__main__":
+          asyncio.run(main())
+    注意点:
+      - "非同期処理を適切に扱うためにasyncioを使用する"
+      - "トレース機能を活用してデバッグと最適化を行う"
+
+NexaSalesプロジェクトでの活用方法:
+  エージェント設計:
+    ServiceAnalysisAgent:
+      instructions: |
+        あなたはNexaSalesのサービス分析を行うエキスパートエージェントです。
+        提供された情報からサービスの機能、ビジネスモデル、提供方法を抽出し、
+        サービスの特徴、ユニークセリングポイント、機能一覧を含むサービス概要レポートを作成してください。
+      tools:
+        - read_business_document: "ビジネスドキュメントを読み込む関数"
+        - extract_service_features: "サービス機能を抽出する関数"
+    
+    CustomerSegmentExtractionAgent:
+      instructions: |
+        あなたはNexaSalesの顧客セグメント分析を行うエキスパートエージェントです。
+        提供された情報から「価値創出ポテンシャル」と「実現容易性」の2軸で4つのセグメントに分類し、
+        各セグメントの特徴、課題、価値ドライバーを分析してください。
+      tools:
+        - analyze_market_data: "市場データを分析する関数"
+        - identify_segments: "顧客セグメントを特定する関数"
+    
+    EVCCalculationAgent:
+      instructions: |
+        あなたはNexaSalesのEVC計算を行うエキスパートエージェントです。
+        各顧客セグメントについて、収益向上価値とコスト最適化価値を計算し、
+        総合的なEVC値を算出してください。
+      tools:
+        - calculate_revenue_enhancement: "収益向上価値を計算する関数"
+        - calculate_cost_optimization: "コスト最適化価値を計算する関数"
+    
+    PriorityEvaluationAgent:
+      instructions: |
+        あなたはNexaSalesの優先度評価を行うエキスパートエージェントです。
+        EVC計算結果と市場ポテンシャル分析結果を統合し、
+        各セグメントの優先順位を算出してください。
+      tools:
+        - evaluate_market_potential: "市場ポテンシャルを評価する関数"
+        - calculate_priority_score: "優先度スコアを計算する関数"
+  
+  統合アプローチ:
+    MainAgent:
+      instructions: |
+        あなたはNexaSalesのメインエージェントです。
+        ユーザーの要求に応じて、適切なサブエージェントにタスクを委譲してください。
+        最終的な結果を統合して、わかりやすく提示してください。
+      handoffs:
+        - ServiceAnalysisAgent
+        - CustomerSegmentExtractionAgent
+        - EVCCalculationAgent
+        - PriorityEvaluationAgent
+
+  データフロー:
+    - "ビジネスドキュメントからの情報抽出 → ServiceAnalysisAgent"
+    - "サービス分析結果 → CustomerSegmentExtractionAgent"
+    - "顧客セグメント情報 → EVCCalculationAgent"
+    - "EVC計算結果 → PriorityEvaluationAgent"
+    - "優先度評価結果 → MainAgent（最終出力）"
+
+注意すべき制限事項:
+  - "複雑な数値計算や特殊なデータ処理はカスタム関数で実装する方が効率的"
+  - "大規模なデータセットの処理には外部ツールとの連携が必要"
+  - "モデルの制約（トークン数制限など）に注意する"
+  - "ハンドオフの連鎖が長くなりすぎないように設計する"
+
+ベストプラクティス:
+  - "エージェントの指示は明確かつ詳細に記述する"
+  - "各エージェントの役割と責任を明確に定義する"
+  - "ツール関数は単一責任の原則に従って設計する"
+  - "エラーハンドリングとロギングを徹底する"
+  - "トレース機能を活用してデバッグと最適化を行う"
+  - "段階的な開発とテストを行い、複雑性を管理する"
+  - "ユーザーフィードバックを収集し、継続的に改善する"
